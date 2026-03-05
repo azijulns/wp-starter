@@ -19,77 +19,53 @@
  *   {{plugin-prefix}}      → "map"               (lower, CSS/JS handles)
  */
 
-// ─── Windows: re-exec with real console handles ──────────────────────────────
-// Composer spawns PHP with piped stdin, so fgets(STDIN) returns EOF and
-// fopen('CONIN$','r') also fails inside the piped process.
-// Solution: re-exec THIS script via proc_open() passing CONIN$/CONOUT$ as
-// explicit fd 0/1/2 – the child process then has a true interactive console.
+// ─── Detect interactive vs. auto mode ────────────────────────────────────────
+//
+// Composer pipes stdin when running post-create-project-cmd, so there is no
+// usable console on any OS.  We detect this and switch to "auto mode", which
+// derives all plugin values from the project directory name — no prompts.
+//
+// Running `php bin/setup.php` directly always has an interactive terminal.
 
-if (PHP_OS_FAMILY === 'Windows' && !@stream_isatty(STDIN)) {
-    $pipes = [];
-    $proc  = @proc_open(
-        '"' . PHP_BINARY . '" ' . escapeshellarg(__FILE__),
-        [
-            0 => ['file', 'CONIN$',  'r'],
-            1 => ['file', 'CONOUT$', 'w'],
-            2 => ['file', 'CONOUT$', 'w'],
-        ],
-        $pipes
-    );
-    if ($proc !== false) {
-        exit(proc_close($proc));
-    }
-    // proc_open failed (truly non-interactive env) – fall through
+$interactive = @stream_isatty(STDIN);
+
+// Unix/macOS: stdin may be piped but /dev/tty is still reachable
+if (!$interactive && PHP_OS_FAMILY !== 'Windows' && @is_readable('/dev/tty')) {
+    $interactive = true;
 }
 
-// ─── Input handle (open once, reuse for every prompt) ─────────────────────
-// For Unix/macOS (or Windows fallback after re-exec fails), open /dev/tty.
-// On Windows after a successful re-exec above, STDIN is already CONIN$
-// so stream_isatty(STDIN) returns true and we use it directly.
+// ─── Collect values ───────────────────────────────────────────────────────
 
-function open_input_handle()
-{
-    if (@stream_isatty(STDIN)) {
-        return STDIN;
-    }
-
-    $ttyPath = PHP_OS_FAMILY === 'Windows' ? 'CONIN$' : '/dev/tty';
-    $handle  = @fopen($ttyPath, 'r');
-
-    if ($handle) {
-        return $handle;
-    }
-
-    // No interactive terminal – let the user know and bail gracefully.
+if ($interactive) {
     echo PHP_EOL;
-    echo "┌────────────────────────────────────────────────────────┐" . PHP_EOL;
-    echo "│  Could not open an interactive terminal.               │" . PHP_EOL;
-    echo "│  Please finish setup manually:                         │" . PHP_EOL;
-    echo "│    cd wp-starter && php bin/setup.php                  │" . PHP_EOL;
-    echo "└────────────────────────────────────────────────────────┘" . PHP_EOL . PHP_EOL;
-    exit(0);
+    echo "╔══════════════════════════════════════════════════╗" . PHP_EOL;
+    echo "║      WordPress Plugin Starter Kit Setup          ║" . PHP_EOL;
+    echo "╚══════════════════════════════════════════════════╝" . PHP_EOL . PHP_EOL;
+    echo "Answer the questions below. Press [Enter] to accept the default." . PHP_EOL . PHP_EOL;
+
+    $pluginName  = ask('Plugin Name', 'My Awesome Plugin');
+    $pluginSlug  = ask('Plugin Slug (folder & file name)', to_slug($pluginName));
+    $prefix      = ask('Prefix for constants/classes (2-5 chars, e.g. MAP)', to_prefix($pluginSlug));
+    $namespace   = ask('PHP Namespace (PascalCase, e.g. MyAwesomePlugin)', to_namespace($pluginSlug));
+    $description = ask('Description', "Essential WordPress plugin – $pluginName");
+    $author      = ask('Author Name', '');
+    $authorUrl   = ask('Author URL', '');
+    $textDomain  = ask('Text Domain', $pluginSlug);
+} else {
+    // Auto mode: derive everything from the project directory name.
+    // e.g. `composer create-project blackdevs/wp-starter my-awesome-plugin`
+    //  → directory = my-awesome-plugin → Plugin Name = My Awesome Plugin
+    $pluginSlug  = to_slug(basename(getcwd()));
+    $pluginName  = ucwords(str_replace('-', ' ', $pluginSlug));
+    $prefix      = to_prefix($pluginSlug);
+    $namespace   = to_namespace($pluginSlug);
+    $description = "Essential WordPress plugin – $pluginName";
+    $author      = '';
+    $authorUrl   = '';
+    $textDomain  = $pluginSlug;
+
+    echo PHP_EOL . "  Auto-configuring from directory name: " . basename(getcwd()) . PHP_EOL;
 }
-
-$GLOBALS['_input'] = open_input_handle();
-
-// ─── Banner ────────────────────────────────────────────────────────────────
-
-echo PHP_EOL;
-echo "╔══════════════════════════════════════════════════╗" . PHP_EOL;
-echo "║      WordPress Plugin Starter Kit Setup          ║" . PHP_EOL;
-echo "╚══════════════════════════════════════════════════╝" . PHP_EOL . PHP_EOL;
-echo "Answer the questions below. Press [Enter] to accept the default." . PHP_EOL . PHP_EOL;
-
-// ─── Collect user input ────────────────────────────────────────────────────
-
-$pluginName  = ask('Plugin Name', 'My Awesome Plugin');
-$pluginSlug  = ask('Plugin Slug (folder & file name)', to_slug($pluginName));
-$prefix      = ask('Prefix for constants/classes (2-5 chars, e.g. MAP)', to_prefix($pluginSlug));
-$namespace   = ask('PHP Namespace (PascalCase, e.g. MyAwesomePlugin)', to_namespace($pluginSlug));
-$description = ask('Description', "Essential WordPress plugin – $pluginName");
-$author      = ask('Author Name', '');
-$authorUrl   = ask('Author URL', '');
-$textDomain  = ask('Text Domain', $pluginSlug);
 
 // Derived case variants
 $PREFIX      = strtoupper($prefix);          // MAP   → constants, class names
@@ -109,10 +85,12 @@ echo " Author        : $author ($authorUrl)"                 . PHP_EOL;
 echo " Description   : $description"                        . PHP_EOL;
 echo "─────────────────────────────────────────────────────" . PHP_EOL . PHP_EOL;
 
-$confirm = ask('Looks good? Generate plugin (y/n)', 'y');
-if (strtolower(trim($confirm)) !== 'y') {
-    echo PHP_EOL . "Aborted. No files were changed." . PHP_EOL . PHP_EOL;
-    exit(0);
+if ($interactive) {
+    $confirm = ask('Looks good? Generate plugin (y/n)', 'y');
+    if (strtolower(trim($confirm)) !== 'y') {
+        echo PHP_EOL . "Aborted. No files were changed." . PHP_EOL . PHP_EOL;
+        exit(0);
+    }
 }
 
 // ─── Token → value map ────────────────────────────────────────────────────
@@ -217,11 +195,15 @@ if (file_exists($composerPath)) {
     }
 }
 
-// ─── Self-cleanup (optional) ──────────────────────────────────────────────
+// ─── Self-cleanup ─────────────────────────────────────────────────────────
 
 echo PHP_EOL;
-$cleanup = ask('Remove bin/setup.php now? (y/n)', 'y');
-if (strtolower(trim($cleanup)) === 'y') {
+$doCleanup = true;
+if ($interactive) {
+    $cleanup   = ask('Remove bin/setup.php now? (y/n)', 'y');
+    $doCleanup = strtolower(trim($cleanup)) === 'y';
+}
+if ($doCleanup) {
     @unlink(__FILE__);
     // Remove bin/ dir if now empty
     $binDir = __DIR__;
@@ -249,7 +231,16 @@ function ask(string $question, string $default = ''): string
 {
     $hint  = $default !== '' ? " [$default]" : '';
     echo "  $question$hint: ";
-    $input = trim((string) fgets($GLOBALS['_input']));
+    // On Unix, fall back to /dev/tty if stdin is somehow redirected
+    if (!@stream_isatty(STDIN) && PHP_OS_FAMILY !== 'Windows') {
+        $tty = @fopen('/dev/tty', 'r');
+        if ($tty) {
+            $input = trim((string) fgets($tty));
+            fclose($tty);
+            return $input === '' ? $default : $input;
+        }
+    }
+    $input = trim((string) fgets(STDIN));
     return $input === '' ? $default : $input;
 }
 
