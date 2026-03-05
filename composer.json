@@ -1,0 +1,23 @@
+{
+    "name": "blackdevs/wp-starter",
+    "description": "WordPress plugin starter kit — run `php bin/setup.php` to scaffold your plugin.",
+    "type": "project",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Your Name",
+            "homepage": "https://example.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4"
+    },
+    "scripts": {
+        "post-create-project-cmd": [
+            "php bin/setup.php"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

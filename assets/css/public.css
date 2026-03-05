@@ -1,0 +1,87 @@
+/***********************
+*      Offcanvas
+*************************/
+.offcanvas .flex-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0;
+}
+
+.offcanvas {
+  position: fixed;
+  height: 100%;
+  width: 350px;
+  top: 0;
+  right: -350px;
+  transition: 0.3s;
+  padding: 0 25px 20px;
+  z-index: 99999;
+  background-color: #000000f8;
+  max-width: 100%;
+}
+
+a.header-logo svg {
+  width: 90px;
+}
+
+.offcanvas__nav a {
+  font-size: 21px;
+  line-height: 1;
+  font-weight: 500;
+  color: #feffff;
+  transition: 0.3s;
+  display: block;
+  padding: 5px 0;
+}
+
+.offcanvas__nav ul li {
+  margin-bottom: 20px;
+}
+
+.offcanvas__nav ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+@media (max-width: 1023px) {
+  .offcanvas.active {
+    right: 0;
+  }
+}
+
+.header__logo {
+  max-width: 185px;
+}
+
+.offcanvas-open {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .offcanvas-open {
+    display: block;
+  }
+}
+
+.offcanvas-open,
+.offcanvas__close {
+  cursor: pointer;
+}
+
+.offcanvas__nav {
+  padding: 30px 10px 0;
+}
+
+.offcanvas__nav a:hover,
+.offcanvas__nav .current-menu-item {
+  color: #e11b22;
+}
+
+.offcanvas__nav li:last-child a {
+  margin: 0;
+}
+
+a.choose-country__block-item.countey-block {
+  text-decoration: none;
+}
