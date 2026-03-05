@@ -19,6 +19,38 @@
  *   {{plugin-prefix}}      → "map"               (lower, CSS/JS handles)
  */
 
+// ─── Input handle (open once, reuse for every prompt) ─────────────────────
+//
+// Composer pipes stdin when running post-create-project-cmd scripts, so
+// fgets(STDIN) returns EOF immediately.  We try to open the real console
+// device instead: CONIN$ on Windows, /dev/tty on Unix/macOS.
+// If neither works we print a helpful message and exit cleanly.
+
+function open_input_handle()
+{
+    if (@stream_isatty(STDIN)) {
+        return STDIN;
+    }
+
+    $ttyPath = PHP_OS_FAMILY === 'Windows' ? 'CONIN$' : '/dev/tty';
+    $handle  = @fopen($ttyPath, 'r');
+
+    if ($handle) {
+        return $handle;
+    }
+
+    // No interactive terminal – let the user know and bail gracefully.
+    echo PHP_EOL;
+    echo "┌────────────────────────────────────────────────────────┐" . PHP_EOL;
+    echo "│  Could not open an interactive terminal.               │" . PHP_EOL;
+    echo "│  Please finish setup manually:                         │" . PHP_EOL;
+    echo "│    cd wp-starter && php bin/setup.php                  │" . PHP_EOL;
+    echo "└────────────────────────────────────────────────────────┘" . PHP_EOL . PHP_EOL;
+    exit(0);
+}
+
+$GLOBALS['_input'] = open_input_handle();
+
 // ─── Banner ────────────────────────────────────────────────────────────────
 
 echo PHP_EOL;
@@ -196,16 +228,7 @@ function ask(string $question, string $default = ''): string
 {
     $hint  = $default !== '' ? " [$default]" : '';
     echo "  $question$hint: ";
-
-    // Composer redirects STDIN when running post-create-project-cmd scripts,
-    // so open the real terminal directly to capture user keystrokes.
-    $tty    = @fopen(PHP_OS_FAMILY === 'Windows' ? 'CONIN$' : '/dev/tty', 'r');
-    $handle = $tty ?: STDIN;
-    $input  = trim((string) fgets($handle));
-    if ($tty) {
-        fclose($tty);
-    }
-
+    $input = trim((string) fgets($GLOBALS['_input']));
     return $input === '' ? $default : $input;
 }
 
