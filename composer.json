@@ -2,7 +2,6 @@
     "name": "blackdevs/wp-starter",
     "description": "WordPress plugin starter kit — run `php bin/setup.php` to scaffold your plugin.",
     "type": "project",
-    "version": "1.0.0",
     "license": "GPL-2.0-or-later",
     "minimum-stability": "stable",
     "authors": [
