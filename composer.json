@@ -15,7 +15,7 @@
     },
     "scripts": {
         "post-create-project-cmd": [
-            "@php -r \"echo PHP_EOL . '✓ Project ready! Run: php bin/setup.php' . PHP_EOL . PHP_EOL;\""
+            "@php bin/setup.php"
         ]
     },
     "config": {

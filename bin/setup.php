@@ -19,12 +19,33 @@
  *   {{plugin-prefix}}      → "map"               (lower, CSS/JS handles)
  */
 
+// ─── Windows: re-exec with real console handles ──────────────────────────────
+// Composer spawns PHP with piped stdin, so fgets(STDIN) returns EOF and
+// fopen('CONIN$','r') also fails inside the piped process.
+// Solution: re-exec THIS script via proc_open() passing CONIN$/CONOUT$ as
+// explicit fd 0/1/2 – the child process then has a true interactive console.
+
+if (PHP_OS_FAMILY === 'Windows' && !@stream_isatty(STDIN)) {
+    $pipes = [];
+    $proc  = @proc_open(
+        '"' . PHP_BINARY . '" ' . escapeshellarg(__FILE__),
+        [
+            0 => ['file', 'CONIN$',  'r'],
+            1 => ['file', 'CONOUT$', 'w'],
+            2 => ['file', 'CONOUT$', 'w'],
+        ],
+        $pipes
+    );
+    if ($proc !== false) {
+        exit(proc_close($proc));
+    }
+    // proc_open failed (truly non-interactive env) – fall through
+}
+
 // ─── Input handle (open once, reuse for every prompt) ─────────────────────
-//
-// Composer pipes stdin when running post-create-project-cmd scripts, so
-// fgets(STDIN) returns EOF immediately.  We try to open the real console
-// device instead: CONIN$ on Windows, /dev/tty on Unix/macOS.
-// If neither works we print a helpful message and exit cleanly.
+// For Unix/macOS (or Windows fallback after re-exec fails), open /dev/tty.
+// On Windows after a successful re-exec above, STDIN is already CONIN$
+// so stream_isatty(STDIN) returns true and we use it directly.
 
 function open_input_handle()
 {
