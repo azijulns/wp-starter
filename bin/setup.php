@@ -196,7 +196,16 @@ function ask(string $question, string $default = ''): string
 {
     $hint  = $default !== '' ? " [$default]" : '';
     echo "  $question$hint: ";
-    $input = trim((string) fgets(STDIN));
+
+    // Composer redirects STDIN when running post-create-project-cmd scripts,
+    // so open the real terminal directly to capture user keystrokes.
+    $tty    = @fopen(PHP_OS_FAMILY === 'Windows' ? 'CONIN$' : '/dev/tty', 'r');
+    $handle = $tty ?: STDIN;
+    $input  = trim((string) fgets($handle));
+    if ($tty) {
+        fclose($tty);
+    }
+
     return $input === '' ? $default : $input;
 }
 
