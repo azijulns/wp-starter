@@ -101,51 +101,105 @@ PHP;
     file_put_contents($filePath, $classContent);
     echo "Created:  {$folder}/{$fileName}\n";
 
-    // Patch main plugin file
-    $pluginContent = file_get_contents($mainPluginFile);
-    $pluginName    = basename($mainPluginFile);
-    $changed       = false;
-
-    $includeStatement = "require_once WPPS_PLUGIN_DIR . '{$folder}/{$fileName}';";
-    if (strpos($pluginContent, $includeStatement) !== false) {
-        echo "Notice:   Include already present in includes().\n";
-    } else {
-        [$patched, $ok] = insert_into_method(
-            $pluginContent,
-            '/\bfunction\s+includes\s*\(/',
-            $includeStatement
-        );
-        if ($ok) {
-            $pluginContent = $patched;
-            $changed       = true;
-            echo "Updated:  {$pluginName} → includes() ← {$includeStatement}\n";
+    // ── Widget folder: patch widgets/init.php ─────────────────────────────────
+    if ($folder === 'widgets') {
+        $widgetInitFile = $rootDir . '/widgets/init.php';
+        if (!file_exists($widgetInitFile)) {
+            echo "Warning:  widgets/init.php not found. Wire the class manually.\n";
         } else {
-            echo "Warning:  Could not patch includes(). Add manually:\n";
-            echo "          {$includeStatement}\n";
-        }
-    }
+            $initContent = file_get_contents($widgetInitFile);
+            $initChanged = false;
 
-    $initStatement = "new {$fqcn}();";
-    if (strpos($pluginContent, $initStatement) !== false) {
-        echo "Notice:   Instantiation already present in init_plugin().\n";
+            $requireStatement  = "require_once WPPS_PLUGIN_DIR . '/widgets/{$fileName}';";
+            $registerStatement = "\$widgets_manager->register(new \\{$fqcn}());";
+
+            if (strpos($initContent, $requireStatement) !== false) {
+                echo "Notice:   Include already present in init_widgets().\n";
+            } else {
+                [$patched, $ok] = insert_into_method(
+                    $initContent,
+                    '/\bfunction\s+init_widgets\s*\(/',
+                    $requireStatement
+                );
+                if ($ok) {
+                    $initContent = $patched;
+                    $initChanged = true;
+                    echo "Updated:  widgets/init.php → init_widgets() ← {$requireStatement}\n";
+                } else {
+                    echo "Warning:  Could not patch init_widgets(). Add manually:\n";
+                    echo "          {$requireStatement}\n";
+                }
+            }
+
+            if (strpos($initContent, $registerStatement) !== false) {
+                echo "Notice:   Register already present in init_widgets().\n";
+            } else {
+                [$patched, $ok] = insert_into_method(
+                    $initContent,
+                    '/\bfunction\s+init_widgets\s*\(/',
+                    $registerStatement
+                );
+                if ($ok) {
+                    $initContent = $patched;
+                    $initChanged = true;
+                    echo "Updated:  widgets/init.php → init_widgets() ← {$registerStatement}\n";
+                } else {
+                    echo "Warning:  Could not patch init_widgets(). Add manually:\n";
+                    echo "          {$registerStatement}\n";
+                }
+            }
+
+            if ($initChanged) {
+                file_put_contents($widgetInitFile, $initContent);
+            }
+        }
     } else {
-        [$patched, $ok] = insert_into_method(
-            $pluginContent,
-            '/\bfunction\s+init_plugin\s*\(/',
-            $initStatement
-        );
-        if ($ok) {
-            $pluginContent = $patched;
-            $changed       = true;
-            echo "Updated:  {$pluginName} → init_plugin() ← new {$fqcn}()\n";
-        } else {
-            echo "Warning:  Could not patch init_plugin(). Add manually:\n";
-            echo "          {$initStatement}\n";
-        }
-    }
+        // ── Other folders: patch main plugin file ─────────────────────────────
+        $pluginContent = file_get_contents($mainPluginFile);
+        $pluginName    = basename($mainPluginFile);
+        $changed       = false;
 
-    if ($changed) {
-        file_put_contents($mainPluginFile, $pluginContent);
+        $includeStatement = "require_once WPPS_PLUGIN_DIR . '{$folder}/{$fileName}';";
+        if (strpos($pluginContent, $includeStatement) !== false) {
+            echo "Notice:   Include already present in includes().\n";
+        } else {
+            [$patched, $ok] = insert_into_method(
+                $pluginContent,
+                '/\bfunction\s+includes\s*\(/',
+                $includeStatement
+            );
+            if ($ok) {
+                $pluginContent = $patched;
+                $changed       = true;
+                echo "Updated:  {$pluginName} → includes() ← {$includeStatement}\n";
+            } else {
+                echo "Warning:  Could not patch includes(). Add manually:\n";
+                echo "          {$includeStatement}\n";
+            }
+        }
+
+        $initStatement = "new {$fqcn}();";
+        if (strpos($pluginContent, $initStatement) !== false) {
+            echo "Notice:   Instantiation already present in init_plugin().\n";
+        } else {
+            [$patched, $ok] = insert_into_method(
+                $pluginContent,
+                '/\bfunction\s+init_plugin\s*\(/',
+                $initStatement
+            );
+            if ($ok) {
+                $pluginContent = $patched;
+                $changed       = true;
+                echo "Updated:  {$pluginName} → init_plugin() ← new {$fqcn}()\n";
+            } else {
+                echo "Warning:  Could not patch init_plugin(). Add manually:\n";
+                echo "          {$initStatement}\n";
+            }
+        }
+
+        if ($changed) {
+            file_put_contents($mainPluginFile, $pluginContent);
+        }
     }
 
     echo "\nDone! Class '{$className}' is ready in {$folder}/{$fileName}\n";
