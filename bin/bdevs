@@ -1,0 +1,253 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * bdevs — WP Starter CLI
+ *
+ * Usage:
+ *   bdevs <command> [arguments]
+ *
+ * Commands:
+ *   class <ClassName> [folder]   Create a class, auto-wire includes() & init_plugin()
+ *   help                         Show this help message
+ *
+ * Examples:
+ *   bdevs class MyFeature
+ *   bdevs class PostTypes   includes
+ *   bdevs class Menu_Widget widgets
+ */
+
+$rootDir = dirname(__DIR__);
+$command = $argv[1] ?? 'help';
+
+switch ($command) {
+    case 'class':
+        cmd_make_class($argv, $rootDir);
+        break;
+
+    case 'help':
+    case '--help':
+    case '-h':
+    default:
+        show_help();
+        break;
+}
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
+
+function cmd_make_class(array $argv, string $rootDir): void
+{
+    $className = $argv[2] ?? null;
+    $folder    = isset($argv[3]) ? rtrim($argv[3], '/\\') : 'classes';
+
+    if (!$className) {
+        echo <<<HELP
+
+  Usage:  bdevs class <ClassName> [folder]
+
+  ClassName   PascalCase or Snake_Case class name (e.g. MyFeature, Post_Types)
+  folder      Sub-directory for the file           (default: classes)
+
+  Examples:
+    bdevs class MyFeature
+    bdevs class PostTypes    includes
+    bdevs class Menu_Widget  widgets
+
+HELP;
+        exit(1);
+    }
+
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $className)) {
+        echo "Error: '$className' is not a valid PHP class name.\n";
+        exit(1);
+    }
+
+    $fileName = class_to_filename($className);
+    $filePath = $rootDir . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $fileName;
+
+    $baseNamespace = detect_base_namespace($rootDir);
+    $namespace     = $baseNamespace . '\\' . folder_to_ns_segment($folder);
+    $fqcn          = $namespace . '\\' . $className;
+
+    $mainPluginFile = find_main_plugin_file($rootDir);
+    if (!$mainPluginFile) {
+        echo "Error: Could not find the main plugin file (no 'Plugin Name:' header in root).\n";
+        exit(1);
+    }
+
+    if (file_exists($filePath)) {
+        echo "Error: File already exists: {$folder}/{$fileName}\n";
+        exit(1);
+    }
+
+    if (!is_dir(dirname($filePath))) {
+        mkdir(dirname($filePath), 0755, true);
+    }
+
+    // Write class file
+    $classContent = <<<PHP
+<?php
+
+namespace {$namespace};
+
+defined('ABSPATH') || die();
+
+class {$className} {
+    public function __construct() {
+        // TODO: register your WordPress hooks here
+    }
+}
+PHP;
+    file_put_contents($filePath, $classContent);
+    echo "Created:  {$folder}/{$fileName}\n";
+
+    // Patch main plugin file
+    $pluginContent = file_get_contents($mainPluginFile);
+    $pluginName    = basename($mainPluginFile);
+    $changed       = false;
+
+    $includeStatement = "require_once WPPS_PLUGIN_DIR . '{$folder}/{$fileName}';";
+    if (strpos($pluginContent, $includeStatement) !== false) {
+        echo "Notice:   Include already present in includes().\n";
+    } else {
+        [$patched, $ok] = insert_into_method(
+            $pluginContent,
+            '/\bfunction\s+includes\s*\(/',
+            $includeStatement
+        );
+        if ($ok) {
+            $pluginContent = $patched;
+            $changed       = true;
+            echo "Updated:  {$pluginName} → includes() ← {$includeStatement}\n";
+        } else {
+            echo "Warning:  Could not patch includes(). Add manually:\n";
+            echo "          {$includeStatement}\n";
+        }
+    }
+
+    $initStatement = "new {$fqcn}();";
+    if (strpos($pluginContent, $initStatement) !== false) {
+        echo "Notice:   Instantiation already present in init_plugin().\n";
+    } else {
+        [$patched, $ok] = insert_into_method(
+            $pluginContent,
+            '/\bfunction\s+init_plugin\s*\(/',
+            $initStatement
+        );
+        if ($ok) {
+            $pluginContent = $patched;
+            $changed       = true;
+            echo "Updated:  {$pluginName} → init_plugin() ← new {$fqcn}()\n";
+        } else {
+            echo "Warning:  Could not patch init_plugin(). Add manually:\n";
+            echo "          {$initStatement}\n";
+        }
+    }
+
+    if ($changed) {
+        file_put_contents($mainPluginFile, $pluginContent);
+    }
+
+    echo "\nDone! Class '{$className}' is ready in {$folder}/{$fileName}\n";
+}
+
+function show_help(): void
+{
+    echo <<<HELP
+
+  bdevs — WP Starter CLI
+
+  Usage:
+    bdevs <command> [arguments]
+
+  Commands:
+    class <ClassName> [folder]   Create a class file and auto-wire it
+    help                         Show this help
+
+  Examples:
+    bdevs class MyFeature
+    bdevs class PostTypes   includes
+    bdevs class Menu_Widget widgets
+
+HELP;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function class_to_filename(string $name): string
+{
+    $name = str_replace('_', '-', $name);
+    $name = preg_replace('/([a-z\d])([A-Z])/', '$1-$2', $name);
+    return strtolower($name) . '.php';
+}
+
+function folder_to_ns_segment(string $folder): string
+{
+    return implode(
+        '\\',
+        array_map('ucfirst', explode('/', str_replace('\\', '/', $folder)))
+    );
+}
+
+function detect_base_namespace(string $rootDir): string
+{
+    foreach (['includes', 'widgets'] as $sub) {
+        foreach (glob($rootDir . '/' . $sub . '/*.php') ?: [] as $file) {
+            if (preg_match('/^namespace\s+([A-Za-z\\\\]+)\\\\/m', file_get_contents($file), $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return 'WPPluginStarter';
+}
+
+function find_main_plugin_file(string $rootDir): ?string
+{
+    foreach (glob($rootDir . '/*.php') ?: [] as $file) {
+        if (strpos(file_get_contents($file), 'Plugin Name:') !== false) {
+            return $file;
+        }
+    }
+    return null;
+}
+
+function insert_into_method(string $content, string $methodRegex, string $newStatement): array
+{
+    $lines   = explode("\n", $content);
+    $total   = count($lines);
+
+    $inMethod        = false;
+    $methodIndent    = -1;
+    $lastBodyLineIdx = -1;
+    $lastBodyIndent  = '';
+
+    for ($i = 0; $i < $total; $i++) {
+        $line    = $lines[$i];
+        $trimmed = ltrim($line);
+        $indent  = strlen($line) - strlen($trimmed);
+
+        if (!$inMethod) {
+            if (preg_match($methodRegex, $line)) {
+                $inMethod     = true;
+                $methodIndent = $indent;
+            }
+            continue;
+        }
+
+        if ($trimmed === '}' && $indent <= $methodIndent) {
+            break;
+        }
+
+        if ($trimmed !== '') {
+            $lastBodyLineIdx = $i;
+            $lastBodyIndent  = str_repeat($line[0] === "\t" ? "\t" : ' ', $indent);
+        }
+    }
+
+    if ($lastBodyLineIdx === -1) {
+        return [$content, false];
+    }
+
+    array_splice($lines, $lastBodyLineIdx + 1, 0, [$lastBodyIndent . $newStatement]);
+    return [implode("\n", $lines), true];
+}

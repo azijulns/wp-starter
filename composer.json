@@ -13,6 +13,9 @@
     "require": {
         "php": ">=7.4"
     },
+    "bin": [
+        "bin/bdevs"
+    ],
     "scripts": {
         "post-create-project-cmd": [
             "@php bin/setup.php"
