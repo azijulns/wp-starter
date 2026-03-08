@@ -158,7 +158,7 @@ PHP;
             $initContent = file_get_contents($widgetInitFile);
             $initChanged = false;
 
-            $requireStatement  = "require_once WPPS_PLUGIN_DIR . '/widgets/{$fileName}';";
+            $requireStatement  = "require_once {$prefix}_PLUGIN_DIR . '/widgets/{$fileName}';";
             $registerStatement = "\$widgets_manager->register(new \\{$widgetClass}());";
 
             if (strpos($initContent, $requireStatement) !== false) {
@@ -226,7 +226,8 @@ PHP;
         $pluginName    = basename($mainPluginFile);
         $changed       = false;
 
-        $includeStatement = "require_once WPPS_PLUGIN_DIR . '{$folder}/{$fileName}';";
+        $prefix           = detect_plugin_prefix($rootDir);
+        $includeStatement = "require_once {$prefix}_PLUGIN_DIR . '{$folder}/{$fileName}';";
         if (strpos($pluginContent, $includeStatement) !== false) {
             echo "Notice:   Include already present in includes().\n";
         } else {
@@ -456,8 +457,9 @@ function find_main_plugin_file(string $rootDir): ?string
 
 function insert_into_method(string $content, string $methodRegex, string $newStatement): array
 {
-    $lines   = explode("\n", $content);
-    $total   = count($lines);
+    $crlf  = strpos($content, "\r\n") !== false;
+    $lines = explode("\n", str_replace("\r\n", "\n", $content));
+    $total = count($lines);
 
     $inMethod        = false;
     $methodIndent    = -1;
@@ -466,7 +468,7 @@ function insert_into_method(string $content, string $methodRegex, string $newSta
 
     for ($i = 0; $i < $total; $i++) {
         $line    = $lines[$i];
-        $trimmed = ltrim($line);
+        $trimmed = rtrim(ltrim($line), "\r");
         $indent  = strlen($line) - strlen($trimmed);
 
         if (!$inMethod) {
@@ -492,5 +494,6 @@ function insert_into_method(string $content, string $methodRegex, string $newSta
     }
 
     array_splice($lines, $lastBodyLineIdx + 1, 0, [$lastBodyIndent . $newStatement]);
-    return [implode("\n", $lines), true];
+    $result = implode("\n", $lines);
+    return [$crlf ? str_replace("\n", "\r\n", $result) : $result, true];
 }
