@@ -17,7 +17,7 @@
  *   bdevs class Menu_Widget widgets
  */
 
-$rootDir = dirname(__DIR__);
+$rootDir = getcwd();
 $command = $argv[1] ?? 'help';
 
 switch ($command) {
