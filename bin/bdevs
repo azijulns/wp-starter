@@ -65,10 +65,6 @@ HELP;
     $fileName = class_to_filename($className);
     $filePath = $rootDir . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $fileName;
 
-    $baseNamespace = detect_base_namespace($rootDir);
-    $namespace     = $baseNamespace . '\\' . folder_to_ns_segment($folder);
-    $fqcn          = $namespace . '\\' . $className;
-
     $mainPluginFile = find_main_plugin_file($rootDir);
     if (!$mainPluginFile) {
         echo "Error: Could not find the main plugin file (no 'Plugin Name:' header in root).\n";
@@ -84,25 +80,69 @@ HELP;
         mkdir(dirname($filePath), 0755, true);
     }
 
-    // Write class file
-    $classContent = <<<PHP
+    // ── Widget folder: Elementor widget stub ──────────────────────────────────
+    if ($folder === 'widgets') {
+        $prefix      = detect_plugin_prefix($rootDir);          // e.g. WPPS
+        $prefixLower = strtolower($prefix);                     // e.g. wpps
+        $widgetClass = $prefix . '_' . $className;              // e.g. WPPS_My_Slider
+        $widgetName  = $prefixLower . '_' . strtolower($className); // e.g. wpps_my_slider
+        $widgetTitle = ucwords(str_replace('_', ' ', $className));  // e.g. My Slider
+        $textDomain  = detect_text_domain($rootDir);            // e.g. my-plugin
+        $widgetSlug  = $prefixLower . '-' . str_replace('_', '-', strtolower($className)); // e.g. wpps-my-slider
+
+        $classContent = <<<PHP
 <?php
 
-namespace {$namespace};
+if (!defined('ABSPATH')) {
+\texit;
+}
 
-defined('ABSPATH') || die();
+use Elementor\Widget_Base;
+use Elementor\Controls_Manager;
 
-class {$className} {
-    public function __construct() {
-        // TODO: register your WordPress hooks here
-    }
+class {$widgetClass} extends Widget_Base {
+
+\tpublic function get_name() {
+\t\treturn '{$widgetName}';
+\t}
+
+\tpublic function get_title() {
+\t\treturn esc_html__('{$widgetTitle}', '{$textDomain}');
+\t}
+
+\tpublic function get_icon() {
+\t\treturn 'eicon-code';
+\t}
+
+\tpublic function get_categories() {
+\t\treturn ['basic'];
+\t}
+
+\tprotected function register_controls() {
+\t\t\$this->start_controls_section(
+\t\t\t'content_section',
+\t\t\t[
+\t\t\t\t'label' => esc_html__('Content', '{$textDomain}'),
+\t\t\t\t'tab'   => Controls_Manager::TAB_CONTENT,
+\t\t\t]
+\t\t);
+
+\t\t\$this->end_controls_section();
+\t}
+
+\tprotected function render() {
+\t\t\$settings = \$this->get_settings_for_display();
+\t\t?>
+\t\t<div class="{$widgetSlug}">
+\t\t\t<!-- TODO: render widget output -->
+\t\t</div>
+\t\t<?php
+\t}
 }
 PHP;
-    file_put_contents($filePath, $classContent);
-    echo "Created:  {$folder}/{$fileName}\n";
+        file_put_contents($filePath, $classContent);
+        echo "Created:  {$folder}/{$fileName}\n";
 
-    // ── Widget folder: patch widgets/init.php ─────────────────────────────────
-    if ($folder === 'widgets') {
         $widgetInitFile = $rootDir . '/widgets/init.php';
         if (!file_exists($widgetInitFile)) {
             echo "Warning:  widgets/init.php not found. Wire the class manually.\n";
@@ -111,7 +151,7 @@ PHP;
             $initChanged = false;
 
             $requireStatement  = "require_once WPPS_PLUGIN_DIR . '/widgets/{$fileName}';";
-            $registerStatement = "\$widgets_manager->register(new \\{$fqcn}());";
+            $registerStatement = "\$widgets_manager->register(new \\{$widgetClass}());";
 
             if (strpos($initContent, $requireStatement) !== false) {
                 echo "Notice:   Include already present in init_widgets().\n";
@@ -154,6 +194,25 @@ PHP;
             }
         }
     } else {
+        // ── Non-widget: plain class stub ──────────────────────────────────────
+        $baseNamespace = detect_base_namespace($rootDir);
+        $namespace     = $baseNamespace . '\\' . folder_to_ns_segment($folder);
+
+        $classContent = <<<PHP
+<?php
+
+namespace {$namespace};
+
+defined('ABSPATH') || die();
+
+class {$className} {
+    public function __construct() {
+        // TODO: register your WordPress hooks here
+    }
+}
+PHP;
+        file_put_contents($filePath, $classContent);
+        echo "Created:  {$folder}/{$fileName}\n";
         // ── Other folders: patch main plugin file ─────────────────────────────
         $pluginContent = file_get_contents($mainPluginFile);
         $pluginName    = basename($mainPluginFile);
@@ -245,7 +304,7 @@ function folder_to_ns_segment(string $folder): string
 
 function detect_base_namespace(string $rootDir): string
 {
-    foreach (['includes', 'widgets'] as $sub) {
+    foreach (['includes', 'widgets', 'classes'] as $sub) {
         foreach (glob($rootDir . '/' . $sub . '/*.php') ?: [] as $file) {
             if (preg_match('/^namespace\s+([A-Za-z\\\\]+)\\\\/m', file_get_contents($file), $m)) {
                 return $m[1];
@@ -253,6 +312,29 @@ function detect_base_namespace(string $rootDir): string
         }
     }
     return 'WPPluginStarter';
+}
+
+function detect_plugin_prefix(string $rootDir): string
+{
+    $mainFile = find_main_plugin_file($rootDir);
+    if ($mainFile) {
+        // e.g. define('WPPS_PLUGIN_DIR', ...) → WPPS
+        if (preg_match("/define\('([A-Z0-9]+)_PLUGIN_DIR'/", file_get_contents($mainFile), $m)) {
+            return $m[1];
+        }
+    }
+    return 'WPPS';
+}
+
+function detect_text_domain(string $rootDir): string
+{
+    $mainFile = find_main_plugin_file($rootDir);
+    if ($mainFile) {
+        if (preg_match('/Text Domain:\s*(.+)/i', file_get_contents($mainFile), $m)) {
+            return trim($m[1]);
+        }
+    }
+    return '{{PLUGIN_TEXT_DOMAIN}}';
 }
 
 function find_main_plugin_file(string $rootDir): ?string
