@@ -25,6 +25,14 @@ switch ($command) {
         cmd_make_class($argv, $rootDir);
         break;
 
+    case 'css':
+        cmd_make_asset($argv, $rootDir, 'css');
+        break;
+
+    case 'js':
+        cmd_make_asset($argv, $rootDir, 'js');
+        break;
+
     case 'help':
     case '--help':
     case '-h':
@@ -237,6 +245,8 @@ PHP;
             }
         }
 
+        $baseNs        = detect_base_namespace($rootDir);
+        $fqcn          = $baseNs . '\\' . folder_to_ns_segment($folder) . '\\' . $className;
         $initStatement = "new {$fqcn}();";
         if (strpos($pluginContent, $initStatement) !== false) {
             echo "Notice:   Instantiation already present in init_plugin().\n";
@@ -264,6 +274,87 @@ PHP;
     echo "\nDone! Class '{$className}' is ready in {$folder}/{$fileName}\n";
 }
 
+function cmd_make_asset(array $argv, string $rootDir, string $type): void
+{
+    $name    = $argv[2] ?? null;
+    $isAdmin = isset($argv[3]) && strtolower($argv[3]) === 'admin';
+
+    if (!$name) {
+        echo "\n  Usage:  bdevs {$type} <filename> [admin]\n\n";
+        echo "  admin   Optional. Enqueues in admin_enqueue_scripts instead.\n\n";
+        echo "  Examples:\n";
+        echo "    bdevs {$type} my-feature\n";
+        echo "    bdevs {$type} admin-panel admin\n\n";
+        exit(1);
+    }
+
+    // Normalise: strip extension if provided, force kebab-case
+    $name     = preg_replace('/\.' . $type . '$/', '', strtolower($name));
+    $name     = preg_replace('/[^a-z0-9-]/', '-', $name);
+    $fileName = $name . '.' . $type;
+    $subDir   = 'assets/' . $type;
+    $filePath = $rootDir . '/' . $subDir . '/' . $fileName;
+
+    if (file_exists($filePath)) {
+        echo "Error: File already exists: {$subDir}/{$fileName}\n";
+        exit(1);
+    }
+
+    if (!is_dir(dirname($filePath))) {
+        mkdir(dirname($filePath), 0755, true);
+    }
+
+    // Write blank asset file with a starter comment
+    $stub = $type === 'css'
+        ? "/* {$name} */\n"
+        : "/* global jQuery */\n(function ($) {\n    'use strict';\n\n    // TODO: {$name}\n\n})(jQuery);\n";
+
+    file_put_contents($filePath, $stub);
+    echo "Created:  {$subDir}/{$fileName}\n";
+
+    // ── Patch AssetsManager ───────────────────────────────────────────────────
+    $assetsFile = find_assets_manager($rootDir);
+    if (!$assetsFile) {
+        echo "Warning:  AssetsManager not found. Enqueue manually.\n";
+        echo "\nDone! {$type} file '{$fileName}' is ready in {$subDir}/\n";
+        return;
+    }
+
+    $prefix      = detect_plugin_prefix($rootDir);
+    $prefixLower = strtolower($prefix);                 // e.g. wpps
+    $handle      = $prefixLower . '-' . $name;          // e.g. wpps-my-feature
+    $constantDir = $prefix . '_PLUGIN_ASSETS';          // e.g. WPPS_PLUGIN_ASSETS
+    $constantVer = $prefix . '_PLUGIN_VERSION';         // e.g. WPPS_PLUGIN_VERSION
+
+    $content = file_get_contents($assetsFile);
+
+    if ($type === 'css') {
+        $statement = "wp_enqueue_style( '{$handle}', {$constantDir} . '{$type}/{$fileName}', [], {$constantVer}, 'all' );";
+    } else {
+        $statement = "wp_enqueue_script( '{$handle}', {$constantDir} . '{$type}/{$fileName}', ['jquery'], {$constantVer}, true );";
+    }
+
+    $methodRegex  = $isAdmin
+        ? '/\bfunction\s+enqueue_admin_scripts\s*\(/'
+        : '/\bfunction\s+enqueue_scripts\s*\(/';
+    $methodLabel  = $isAdmin ? 'enqueue_admin_scripts()' : 'enqueue_scripts()';
+
+    if (strpos($content, $statement) !== false) {
+        echo "Notice:   Already enqueued in AssetsManager.\n";
+    } else {
+        [$patched, $ok] = insert_into_method($content, $methodRegex, $statement);
+        if ($ok) {
+            file_put_contents($assetsFile, $patched);
+            echo "Updated:  " . basename($assetsFile) . " → {$methodLabel} ← {$statement}\n";
+        } else {
+            echo "Warning:  Could not patch {$methodLabel}. Add manually:\n";
+            echo "          {$statement}\n";
+        }
+    }
+
+    echo "\nDone! {$type} file '{$fileName}' is ready in {$subDir}/\n";
+}
+
 function show_help(): void
 {
     echo <<<HELP
@@ -275,12 +366,18 @@ function show_help(): void
 
   Commands:
     class <ClassName> [folder]   Create a class file and auto-wire it
+    css   <filename> [admin]     Create a CSS file and enqueue it in AssetsManager
+    js    <filename> [admin]     Create a JS file and enqueue it in AssetsManager
     help                         Show this help
 
   Examples:
     bdevs class MyFeature
     bdevs class PostTypes   includes
     bdevs class Menu_Widget widgets
+    bdevs css my-feature
+    bdevs css admin-styles admin
+    bdevs js  my-feature
+    bdevs js  admin-panel  admin
 
 HELP;
 }
@@ -335,6 +432,16 @@ function detect_text_domain(string $rootDir): string
         }
     }
     return '{{PLUGIN_TEXT_DOMAIN}}';
+}
+
+function find_assets_manager(string $rootDir): ?string
+{
+    foreach (glob($rootDir . '/includes/*.php') ?: [] as $file) {
+        if (stripos(basename($file), 'assets') !== false) {
+            return $file;
+        }
+    }
+    return null;
 }
 
 function find_main_plugin_file(string $rootDir): ?string

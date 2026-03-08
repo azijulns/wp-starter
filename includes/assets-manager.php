@@ -8,7 +8,11 @@ class AssetsManager {
     public $prefix = '{{plugin-prefix}}-';
 
     public function __construct() {
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
+        add_action('wp_enqueue_scripts',    [$this, 'enqueue_scripts']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+    }
+
+    public function enqueue_admin_scripts() {
     }
 
     public function enqueue_scripts() {
